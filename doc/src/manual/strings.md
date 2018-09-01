@@ -837,7 +837,7 @@ Captures can also be accessed by indexing the `RegexMatch` object with the numbe
 capture group:
 
 ```jldoctest
-julia> m=match(r"(?<hour>\d+):(?<minute>\d+)","12:45")
+julia> m = match(r"(?<hour>\d+):(?<minute>\d+)","12:45")
 RegexMatch("12:45", hour="12", minute="45")
 
 julia> m[:minute]
