@@ -409,7 +409,7 @@ julia> bar(x...)
 Furthermore, the iterable object splatted into a function call need not be a tuple:
 
 ```jldoctest barfunc
-julia> x = [3,4]
+julia> x = [3, 4]
 2-element Array{Int64,1}:
  3
  4
