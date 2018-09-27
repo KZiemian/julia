@@ -417,7 +417,7 @@ julia> x = [3, 4]
 julia> bar(1,2,x...)
 (1, 2, (3, 4))
 
-julia> x = [1,2,3,4]
+julia> x = [1, 2, 3, 4]
 4-element Array{Int64,1}:
  1
  2
@@ -434,7 +434,7 @@ often is):
 ```jldoctest
 julia> baz(a,b) = a + b;
 
-julia> args = [1,2]
+julia> args = [1, 2]
 2-element Array{Int64,1}:
  1
  2
@@ -442,7 +442,7 @@ julia> args = [1,2]
 julia> baz(args...)
 3
 
-julia> args = [1,2,3]
+julia> args = [1, 2, 3]
 3-element Array{Int64,1}:
  1
  2
