@@ -654,7 +654,7 @@ julia> bar(x...)
 Furthermore, the iterable object splatted into a function call need not be a tuple:
 
 ```jldoctest barfunc
-julia> x = [3,4]
+julia> x = [3, 4]
 2-element Vector{Int64}:
  3
  4
@@ -662,7 +662,7 @@ julia> x = [3,4]
 julia> bar(1,2,x...)
 (1, 2, (3, 4))
 
-julia> x = [1,2,3,4]
+julia> x = [1, 2, 3, 4]
 4-element Vector{Int64}:
  1
  2
@@ -679,7 +679,7 @@ often is):
 ```jldoctest
 julia> baz(a,b) = a + b;
 
-julia> args = [1,2]
+julia> args = [1, 2]
 2-element Vector{Int64}:
  1
  2
@@ -687,7 +687,7 @@ julia> args = [1,2]
 julia> baz(args...)
 3
 
-julia> args = [1,2,3]
+julia> args = [1, 2, 3]
 3-element Vector{Int64}:
  1
  2
