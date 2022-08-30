@@ -257,14 +257,14 @@ end
 isdefined_tfunc(arg1, sym, order) = (@nospecialize; isdefined_tfunc(arg1, sym))
 function isdefined_tfunc(@nospecialize(arg1), @nospecialize(sym))
     if isa(arg1, Const)
-        a1 = typeof(arg1.val)
+        arg1t = typeof(arg1.val)
     else
-        a1 = widenconst(arg1)
+        arg1t = widenconst(arg1)
     end
-    if isType(a1)
+    if isType(arg1t)
         return Bool
     end
-    a1 = unwrap_unionall(a1)
+    a1 = unwrap_unionall(arg1t)
     if isa(a1, DataType) && !isabstracttype(a1)
         if a1 === Module
             hasintersect(widenconst(sym), Symbol) || return Bottom
@@ -307,8 +307,8 @@ function isdefined_tfunc(@nospecialize(arg1), @nospecialize(sym))
             end
         end
     elseif isa(a1, Union)
-        return tmerge(isdefined_tfunc(a1.a, sym),
-                      isdefined_tfunc(a1.b, sym))
+        return tmerge(isdefined_tfunc(rewrap_unionall(a1.a, arg1t), sym),
+                      isdefined_tfunc(rewrap_unionall(a1.b, arg1t), sym))
     end
     return Bool
 end
@@ -562,6 +562,23 @@ add_tfunc(atomic_pointerswap, 3, 3, (a, v, order) -> (@nospecialize; pointer_elt
 add_tfunc(atomic_pointermodify, 4, 4, atomic_pointermodify_tfunc, 5)
 add_tfunc(atomic_pointerreplace, 5, 5, atomic_pointerreplace_tfunc, 5)
 add_tfunc(donotdelete, 0, INT_INF, (@nospecialize args...)->Nothing, 0)
+function compilerbarrier_tfunc(@nospecialize(setting), @nospecialize(val))
+    # strongest barrier if a precise information isn't available at compiler time
+    # XXX we may want to have "compile-time" error instead for such case
+    isa(setting, Const) || return Any
+    setting = setting.val
+    isa(setting, Symbol) || return Any
+    if setting === :const
+        return widenconst(val)
+    elseif setting === :conditional
+        return widenconditional(val)
+    elseif setting === :type
+        return Any
+    else
+        return Bottom
+    end
+end
+add_tfunc(compilerbarrier, 2, 2, compilerbarrier_tfunc, 5)
 add_tfunc(Core.finalizer, 2, 4, (@nospecialize args...)->Nothing, 5)
 
 # more accurate typeof_tfunc for vararg tuples abstract only in length
@@ -1854,7 +1871,7 @@ const _INACCESSIBLEMEM_BUILTINS = Any[
     apply_type,
     arraysize,
     Core.ifelse,
-    sizeof,
+    Core.sizeof,
     svec,
     fieldtype,
     isa,
