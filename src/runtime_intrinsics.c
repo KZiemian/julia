@@ -490,14 +490,14 @@ JL_DLLEXPORT jl_value_t *jl_cglobal(jl_value_t *v, jl_value_t *ty)
 
     char *f_lib = NULL;
     if (jl_is_tuple(v) && jl_nfields(v) > 1) {
-        jl_value_t *t1 = jl_fieldref_noalloc(v, 1);
-        v = jl_fieldref(v, 0);
+        jl_value_t *t1 = jl_fieldref(v, 1);
         if (jl_is_symbol(t1))
             f_lib = jl_symbol_name((jl_sym_t*)t1);
         else if (jl_is_string(t1))
             f_lib = jl_string_data(t1);
         else
             JL_TYPECHK(cglobal, symbol, t1)
+        v = jl_fieldref(v, 0);
     }
 
     char *f_name = NULL;
@@ -1038,7 +1038,7 @@ static inline jl_value_t *jl_intrinsiclambda_checked(jl_value_t *ty, void *pa, v
     jl_datatype_t *tuptyp = jl_apply_tuple_type_v(params, 2);
     JL_GC_PROMISE_ROOTED(tuptyp); // (JL_ALWAYS_LEAFTYPE)
     jl_task_t *ct = jl_current_task;
-    jl_value_t *newv = jl_gc_alloc(ct->ptls, ((jl_datatype_t*)tuptyp)->size, tuptyp);
+    jl_value_t *newv = jl_gc_alloc(ct->ptls, jl_datatype_size(tuptyp), tuptyp);
 
     intrinsic_checked_t op = select_intrinsic_checked(sz2, (const intrinsic_checked_t*)voidlist);
     int ovflw = op(sz * host_char_bit, pa, pb, jl_data_ptr(newv));
@@ -1182,7 +1182,6 @@ bi_fintrinsic(add,add_float)
 bi_fintrinsic(sub,sub_float)
 bi_fintrinsic(mul,mul_float)
 bi_fintrinsic(div,div_float)
-bi_fintrinsic(frem,rem_float)
 
 // ternary operators //
 // runtime fma is broken on windows, define julia_fma(f) ourself with fma_emulated as reference.

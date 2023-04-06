@@ -70,7 +70,7 @@ end
 @nospecialize
 
 """
-    Result
+    Test.Result
 
 All tests produce a result object. This object may or may not be
 stored, depending on whether the test is part of a test set.
@@ -78,7 +78,7 @@ stored, depending on whether the test is part of a test set.
 abstract type Result end
 
 """
-    Pass
+    Test.Pass <: Test.Result
 
 The test condition was true, i.e. the expression evaluated to true or
 the correct exception was thrown.
@@ -108,7 +108,7 @@ function Base.show(io::IO, t::Pass)
 end
 
 """
-    Fail
+    Test.Fail <: Test.Result
 
 The test condition was false, i.e. the expression evaluated to false or
 the correct exception was not thrown.
@@ -165,10 +165,11 @@ function Base.show(io::IO, t::Fail)
             print(io, "\n     Context: ", t.context)
         end
     end
+    println(io) # add some visual space to separate sequential failures
 end
 
 """
-    Error
+    Test.Error <: Test.Result
 
 The test condition couldn't be evaluated due to an exception, or
 it evaluated to something other than a [`Bool`](@ref).
@@ -249,7 +250,7 @@ function Base.show(io::IO, t::Error)
 end
 
 """
-    Broken
+    Test.Broken <: Test.Result
 
 The test condition is the expected (failed) result of a broken test,
 or was explicitly skipped with `@test_skip`.
@@ -674,8 +675,13 @@ function do_broken_test(result::ExecutionResult, orig_expr)
     # Assume the test is broken and only change if the result is true
     if isa(result, Returned)
         value = result.value
-        if isa(value, Bool) && value
-            testres = Error(:test_unbroken, orig_expr, value, nothing, result.source)
+        if isa(value, Bool)
+            if value
+                testres = Error(:test_unbroken, orig_expr, value, nothing, result.source)
+            end
+        else
+            # If the result is non-Boolean, this counts as an Error
+            testres = Error(:test_nonbool, orig_expr, value, nothing, result.source)
         end
     end
     record(get_testset(), testres)
@@ -708,7 +714,7 @@ Test Passed
 
 julia> @test_throws "Try sqrt(Complex" sqrt(-1)
 Test Passed
-     Message: "DomainError with -1.0:\\nsqrt will only return a complex result if called with a complex argument. Try sqrt(Complex(x))."
+     Message: "DomainError with -1.0:\\nsqrt was called with a negative real argument but will only return a complex result if called with a complex argument. Try sqrt(Complex(x))."
 ```
 
 In the final example, instead of matching a single string it could alternatively have been performed with:
@@ -1030,8 +1036,8 @@ record(ts::DefaultTestSet, t::Pass) = (ts.n_passed += 1; t)
 
 # For the other result types, immediately print the error message
 # but do not terminate. Print a backtrace.
-function record(ts::DefaultTestSet, t::Union{Fail, Error})
-    if TESTSET_PRINT_ENABLE[]
+function record(ts::DefaultTestSet, t::Union{Fail, Error}; print_result::Bool=TESTSET_PRINT_ENABLE[])
+    if print_result
         print(ts.description, ": ")
         # don't print for interrupted tests
         if !(t isa Error) || t.test_type !== :test_interrupted
@@ -1122,7 +1128,7 @@ const TESTSET_PRINT_ENABLE = Ref(true)
 
 # Called at the end of a @testset, behaviour depends on whether
 # this is a child of another testset, or the "root" testset
-function finish(ts::DefaultTestSet)
+function finish(ts::DefaultTestSet; print_results::Bool=TESTSET_PRINT_ENABLE[])
     ts.time_end = time()
     # If we are a nested test set, do not print a full summary
     # now - let the parent test set do the printing
@@ -1139,7 +1145,7 @@ function finish(ts::DefaultTestSet)
     total_broken = broken + c_broken
     total = total_pass + total_fail + total_error + total_broken
 
-    if TESTSET_PRINT_ENABLE[]
+    if print_results
         print_test_results(ts)
     end
 
@@ -1204,10 +1210,11 @@ function get_test_counts(ts::DefaultTestSet)
         end
     end
     ts.anynonpass = (fails + errors + c_fails + c_errors > 0)
-    duration = if isnothing(ts.time_end)
+    (; time_start, time_end) = ts
+    duration = if isnothing(time_end)
         ""
     else
-        dur_s = ts.time_end - ts.time_start
+        dur_s = time_end - time_start
         if dur_s < 60
             string(round(dur_s, digits = 1), "s")
         else
@@ -1308,13 +1315,13 @@ end
     @testset [CustomTestSet] [option=val  ...] ["description"] begin ... end
     @testset [CustomTestSet] [option=val  ...] ["description \$v"] for v in (...) ... end
     @testset [CustomTestSet] [option=val  ...] ["description \$v, \$w"] for v in (...), w in (...) ... end
-    @testset [CustomTestSet] [option=val  ...] ["description \$v, \$w"] foo()
+    @testset [CustomTestSet] [option=val  ...] ["description"] foo()
     @testset let v = (...) ... end
 
 # With begin/end or function call
 
 When @testset is used, with begin/end or a single function call, the macro
-starts a new test set in which to evaulate the given expression.
+starts a new test set in which to evaluate the given expression.
 
 If no custom testset type is given it defaults to creating a `DefaultTestSet`.
 `DefaultTestSet` records all the results and, if there are any `Fail`s or
@@ -1326,19 +1333,23 @@ also be used for any nested `@testset` invocations. The given options are only
 applied to the test set where they are given. The default test set type
 accepts three boolean options:
 - `verbose`: if `true`, the result summary of the nested testsets is shown even
-when they all pass (the default is `false`).
+  when they all pass (the default is `false`).
 - `showtiming`: if `true`, the duration of each displayed testset is shown
-(the default is `true`).
+  (the default is `true`).
 - `failfast`: if `true`, any test failure or error will cause the testset and any
-child testsets to return immediately (the default is `false`). This can also be set
-globally via the env var `JULIA_TEST_FAILFAST`.
+  child testsets to return immediately (the default is `false`).
+  This can also be set globally via the env var `JULIA_TEST_FAILFAST`.
+
+!!! compat "Julia 1.8"
+    `@testset foo()` requires at least Julia 1.8.
 
 !!! compat "Julia 1.9"
     `failfast` requires at least Julia 1.9.
 
 The description string accepts interpolation from the loop indices.
 If no description is provided, one is constructed based on the variables.
-If a function call is provided, its name will be used. Explicit description strings override this behavior.
+If a function call is provided, its name will be used.
+Explicit description strings override this behavior.
 
 By default the `@testset` macro will return the testset object itself, though
 this behavior can be customized in other testset types. If a `for` loop is used
@@ -1383,7 +1394,7 @@ individual tests fail. Transparent test sets do not introduce additional levels
 of nesting in the test set hierarchy and are passed through directly to the
 parent test set (with the context object appended to any failing tests.)
 
-    !!! compat "Julia 1.9"
+!!! compat "Julia 1.9"
     `@testset let` requires at least Julia 1.9.
 
 ## Examples
@@ -1395,6 +1406,7 @@ julia> @testset let logi = log(im)
 Test Failed at none:3
   Expression: !(iszero(real(logi)))
      Context: logi = 0.0 + 1.5707963267948966im
+
 ERROR: There was an error during testing
 ```
 """
@@ -1409,7 +1421,7 @@ macro testset(args...)
         error("Expected function call, begin/end block or for loop as argument to @testset")
     end
 
-    FAIL_FAST[] = something(tryparse(Bool, get(ENV, "JULIA_TEST_FAILFAST", "false")), false)
+    FAIL_FAST[] = Base.get_bool_env("JULIA_TEST_FAILFAST", false)
 
     if tests.head === :for
         return testset_forloop(args, tests, __source__)
@@ -1518,7 +1530,7 @@ end
 
 function failfast_print()
     printstyled("\nFail-fast enabled:"; color = Base.error_color(), bold=true)
-    printstyled(" Fail or Error occured\n\n"; color = Base.error_color())
+    printstyled(" Fail or Error occurred\n\n"; color = Base.error_color())
 end
 
 """
@@ -1685,7 +1697,7 @@ end
 """
     get_testset_depth()
 
-Returns the number of active test sets, not including the default test set
+Return the number of active test sets, not including the default test set
 """
 function get_testset_depth()
     testsets = get(task_local_storage(), :__BASETESTNEXT__, AbstractTestSet[])
@@ -1815,7 +1827,7 @@ end
                                       ambiguous_bottom=false,
                                       allowed_undefineds=nothing)
 
-Returns a vector of `(Method,Method)` pairs of ambiguous methods
+Return a vector of `(Method,Method)` pairs of ambiguous methods
 defined in the specified modules.
 Use `recursive=true` to test in all submodules.
 
@@ -1846,7 +1858,7 @@ function detect_ambiguities(mods::Module...;
     function examine(mt::Core.MethodTable)
         for m in Base.MethodList(mt)
             m.sig == Tuple && continue # ignore Builtins
-            is_in_mods(m.module, recursive, mods) || continue
+            is_in_mods(parentmodule(m), recursive, mods) || continue
             world = Base.get_world_counter()
             ambig = Ref{Int32}(0)
             ms = Base._methods_by_ftype(m.sig, nothing, -1, world, true, Ref(typemin(UInt)), Ref(typemax(UInt)), ambig)::Vector
@@ -1879,7 +1891,7 @@ function detect_ambiguities(mods::Module...;
             f = Base.unwrap_unionall(getfield(mod, n))
             if isa(f, Module) && f !== mod && parentmodule(f) === mod && nameof(f) === n
                 push!(work, f)
-            elseif isa(f, DataType) && isdefined(f.name, :mt) && f.name.module === mod && f.name.name === n && f.name.mt !== Symbol.name.mt && f.name.mt !== DataType.name.mt
+            elseif isa(f, DataType) && isdefined(f.name, :mt) && parentmodule(f) === mod && nameof(f) === n && f.name.mt !== Symbol.name.mt && f.name.mt !== DataType.name.mt
                 examine(f.name.mt)
             end
         end
@@ -1892,7 +1904,7 @@ end
 """
     detect_unbound_args(mod1, mod2...; recursive=false, allowed_undefineds=nothing)
 
-Returns a vector of `Method`s which may have unbound type parameters.
+Return a vector of `Method`s which may have unbound type parameters.
 Use `recursive=true` to test in all submodules.
 
 By default, any undefined symbols trigger a warning. This warning can
@@ -1900,8 +1912,8 @@ be suppressed by supplying a collection of `GlobalRef`s for which
 the warning can be skipped. For example, setting
 
 ```
-allow_undefineds = Set([GlobalRef(Base, :active_repl),
-                        GlobalRef(Base, :active_repl_backend)])
+allowed_undefineds = Set([GlobalRef(Base, :active_repl),
+                          GlobalRef(Base, :active_repl_backend)])
 ```
 
 would suppress warnings about `Base.active_repl` and
@@ -1918,7 +1930,7 @@ function detect_unbound_args(mods...;
     mods = collect(mods)::Vector{Module}
     function examine(mt::Core.MethodTable)
         for m in Base.MethodList(mt)
-            is_in_mods(m.module, recursive, mods) || continue
+            is_in_mods(parentmodule(m), recursive, mods) || continue
             has_unbound_vars(m.sig) || continue
             tuple_sig = Base.unwrap_unionall(m.sig)::DataType
             if Base.isvatuple(tuple_sig)
@@ -1950,7 +1962,7 @@ function detect_unbound_args(mods...;
             f = Base.unwrap_unionall(getfield(mod, n))
             if isa(f, Module) && f !== mod && parentmodule(f) === mod && nameof(f) === n
                 push!(work, f)
-            elseif isa(f, DataType) && isdefined(f.name, :mt) && f.name.module === mod && f.name.name === n && f.name.mt !== Symbol.name.mt && f.name.mt !== DataType.name.mt
+            elseif isa(f, DataType) && isdefined(f.name, :mt) && parentmodule(f) === mod && nameof(f) === n && f.name.mt !== Symbol.name.mt && f.name.mt !== DataType.name.mt
                 examine(f.name.mt)
             end
         end
@@ -1960,54 +1972,11 @@ function detect_unbound_args(mods...;
     return collect(ambs)
 end
 
-# find if var will be constrained to have a definite value
-# in any concrete leaftype subtype of typ
-function constrains_param(var::TypeVar, @nospecialize(typ), covariant::Bool)
-    typ === var && return true
-    while typ isa UnionAll
-        covariant && constrains_param(var, typ.var.ub, covariant) && return true
-        # typ.var.lb doesn't constrain var
-        typ = typ.body
-    end
-    if typ isa Union
-        # for unions, verify that both options would constrain var
-        ba = constrains_param(var, typ.a, covariant)
-        bb = constrains_param(var, typ.b, covariant)
-        (ba && bb) && return true
-    elseif typ isa DataType
-        # return true if any param constrains var
-        fc = length(typ.parameters)
-        if fc > 0
-            if typ.name === Tuple.name
-                # vararg tuple needs special handling
-                for i in 1:(fc - 1)
-                    p = typ.parameters[i]
-                    constrains_param(var, p, covariant) && return true
-                end
-                lastp = typ.parameters[fc]
-                vararg = Base.unwrap_unionall(lastp)
-                if vararg isa Core.TypeofVararg && isdefined(vararg, :N)
-                    constrains_param(var, vararg.N, covariant) && return true
-                    # T = vararg.parameters[1] doesn't constrain var
-                else
-                    constrains_param(var, lastp, covariant) && return true
-                end
-            else
-                for i in 1:fc
-                    p = typ.parameters[i]
-                    constrains_param(var, p, false) && return true
-                end
-            end
-        end
-    end
-    return false
-end
-
 function has_unbound_vars(@nospecialize sig)
     while sig isa UnionAll
         var = sig.var
         sig = sig.body
-        if !constrains_param(var, sig, true)
+        if !Core.Compiler.constrains_param(var, sig, #=covariant=#true, #=type_constrains=#true)
             return true
         end
     end
@@ -2126,49 +2095,7 @@ function _check_bitarray_consistency(B::BitArray{N}) where N
     return true
 end
 
-# 0.7 deprecations
-
-begin
-    approx_full(x::AbstractArray) = x
-    approx_full(x::Number) = x
-    approx_full(x) = full(x)
-
-    function test_approx_eq(va, vb, Eps, astr, bstr)
-        va = approx_full(va)
-        vb = approx_full(vb)
-        la, lb = length(LinearIndices(va)), length(LinearIndices(vb))
-        if la != lb
-            error("lengths of ", astr, " and ", bstr, " do not match: ",
-                "\n  ", astr, " (length $la) = ", va,
-                "\n  ", bstr, " (length $lb) = ", vb)
-        end
-        diff = real(zero(eltype(va)))
-        for (xa, xb) = zip(va, vb)
-            if isfinite(xa) && isfinite(xb)
-                diff = max(diff, abs(xa-xb))
-            elseif !isequal(xa,xb)
-                error("mismatch of non-finite elements: ",
-                    "\n  ", astr, " = ", va,
-                    "\n  ", bstr, " = ", vb)
-            end
-        end
-
-        if !isnan(Eps) && !(diff <= Eps)
-            sdiff = string("|", astr, " - ", bstr, "| <= ", Eps)
-            error("assertion failed: ", sdiff,
-                "\n  ", astr, " = ", va,
-                "\n  ", bstr, " = ", vb,
-                "\n  difference = ", diff, " > ", Eps)
-        end
-    end
-
-    array_eps(a::AbstractArray{Complex{T}}) where {T} = eps(float(maximum(x->(isfinite(x) ? abs(x) : T(NaN)), a)))
-    array_eps(a) = eps(float(maximum(x->(isfinite(x) ? abs(x) : oftype(x,NaN)), a)))
-
-    test_approx_eq(va, vb, astr, bstr) =
-        test_approx_eq(va, vb, 1E4*length(LinearIndices(va))*max(array_eps(va), array_eps(vb)), astr, bstr)
-end
-
 include("logging.jl")
+include("precompile.jl")
 
 end # module

@@ -153,7 +153,7 @@ end
 """
     stacktrace([trace::Vector{Ptr{Cvoid}},] [c_funcs::Bool=false]) -> StackTrace
 
-Returns a stack trace in the form of a vector of `StackFrame`s. (By default stacktrace
+Return a stack trace in the form of a vector of `StackFrame`s. (By default stacktrace
 doesn't return C functions, but this can be enabled.) When called without specifying a
 trace, `stacktrace` first calls `backtrace`.
 """
@@ -200,7 +200,7 @@ end
 """
     remove_frames!(stack::StackTrace, m::Module)
 
-Returns the `StackTrace` with all `StackFrame`s from the provided `Module` removed.
+Return the `StackTrace` with all `StackFrame`s from the provided `Module` removed.
 """
 function remove_frames!(stack::StackTrace, m::Module)
     filter!(f -> !from(f, m), stack)
@@ -224,6 +224,7 @@ function show_spec_linfo(io::IO, frame::StackFrame)
         if isa(def, Method)
             sig = linfo.specTypes
             argnames = Base.method_argnames(def)
+            argnames = replace(argnames, :var"#unused#" => :var"")
             if def.nkw > 0
                 # rearrange call kw_impl(kw_args..., func, pos_args...) to func(pos_args...)
                 kwarg_types = Any[ fieldtype(sig, i) for i = 2:(1+def.nkw) ]
@@ -272,11 +273,7 @@ function Base.parentmodule(frame::StackFrame)
     linfo = frame.linfo
     if linfo isa MethodInstance
         def = linfo.def
-        if def isa Module
-            return def
-        else
-            return (def::Method).module
-        end
+        return def isa Module ? def : parentmodule(def::Method)
     else
         # The module is not always available (common reasons include inlined
         # frames and frames arising from the interpreter)
@@ -287,7 +284,7 @@ end
 """
     from(frame::StackFrame, filter_mod::Module) -> Bool
 
-Returns whether the `frame` is from the provided `Module`
+Return whether the `frame` is from the provided `Module`
 """
 function from(frame::StackFrame, m::Module)
     return parentmodule(frame) === m

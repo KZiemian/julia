@@ -1,11 +1,14 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+# Cassette
+# ========
+
 module MiniCassette
     # A minimal demonstration of the cassette mechanism. Doesn't support all the
     # fancy features, but sufficient to exercise this code path in the compiler.
 
-    using Core.Compiler: method_instances, retrieve_code_info, CodeInfo,
-        MethodInstance, SSAValue, GotoNode, GotoIfNot, ReturnNode, Slot, SlotNumber, quoted,
+    using Core.Compiler: retrieve_code_info, CodeInfo,
+        MethodInstance, SSAValue, GotoNode, GotoIfNot, ReturnNode, SlotNumber, quoted,
         signature_type
     using Base: _methods_by_ftype
     using Base.Meta: isexpr
@@ -30,7 +33,7 @@ module MiniCassette
             return Expr(expr.head, map(transform, expr.args)...)
         elseif isa(expr, GotoNode)
             return GotoNode(map_ssa_value(SSAValue(expr.label)).id)
-        elseif isa(expr, Slot)
+        elseif isa(expr, SlotNumber)
             return map_slot_number(expr.id)
         elseif isa(expr, SSAValue)
             return map_ssa_value(expr)
@@ -66,24 +69,28 @@ module MiniCassette
         end
     end
 
-    function overdub_generator(self, c, f, args)
-        if !isdefined(f, :instance)
-            return :(return f(args...))
+    function overdub_generator(world::UInt, source, self, c, f, args)
+        @nospecialize
+        if !Base.issingletontype(f)
+            # (c, f, args..) -> f(args...)
+            code_info = :(return f(args...))
+            return Core.GeneratedFunctionStub(identity, Core.svec(:overdub, :c, :f, :args), Core.svec())(world, source, code_info)
         end
 
         tt = Tuple{f, args...}
-        match = Base._which(tt, typemax(UInt))
+        match = Base._which(tt; world)
         mi = Core.Compiler.specialize_method(match)
         # Unsupported in this mini-cassette
         @assert !mi.def.isva
-        code_info = retrieve_code_info(mi)
+        code_info = retrieve_code_info(mi, world)
         @assert isa(code_info, CodeInfo)
         code_info = copy(code_info)
-        if isdefined(code_info, :edges)
-            code_info.edges = MethodInstance[mi]
-        end
+        @assert code_info.edges === nothing
+        code_info.edges = MethodInstance[mi]
         transform!(code_info, length(args), match.sparams)
-        code_info
+        # TODO: this is mandatory: code_info.min_world = max(code_info.min_world, min_world[])
+        # TODO: this is mandatory: code_info.max_world = min(code_info.max_world, max_world[])
+        return code_info
     end
 
     @inline function overdub(c::Ctx, f::Union{Core.Builtin, Core.IntrinsicFunction}, args...)
@@ -92,16 +99,7 @@ module MiniCassette
 
     @eval function overdub(c::Ctx, f, args...)
         $(Expr(:meta, :generated_only))
-        $(Expr(:meta,
-                :generated,
-                Expr(:new,
-                    Core.GeneratedFunctionStub,
-                    :overdub_generator,
-                    Any[:overdub, :ctx, :f, :args],
-                    Any[],
-                    @__LINE__,
-                    QuoteNode(Symbol(@__FILE__)),
-                    true)))
+        $(Expr(:meta, :generated, overdub_generator))
     end
 end
 
@@ -116,30 +114,13 @@ f() = 2
 # Test that MiniCassette is at least somewhat capable by overdubbing gcd
 @test overdub(Ctx(), gcd, 10, 20) === gcd(10, 20)
 
-# Test that pure propagates for Cassette
-Base.@pure isbitstype(T) = Base.isbitstype(T)
-f31012(T) = Val(isbitstype(T))
-@test @inferred(overdub(Ctx(), f31012, Int64)) == Val(true)
-
 @generated bar(::Val{align}) where {align} = :(42)
 foo(i) = i+bar(Val(1))
 
 @test @inferred(overdub(Ctx(), foo, 1)) == 43
 
-# Check that misbehaving pure functions propagate their error
-Base.@pure func1() = 42
-Base.@pure func2() = (this_is_an_exception; func1())
-
-let method = which(func2, ())
-    mi = Core.Compiler.specialize_method(method, Tuple{typeof(func2)}, Core.svec())
-    mi.inInference = true
-end
-func3() = func2()
-@test_throws UndefVarError func3()
-
-
-
-## overlay method tables
+# overlay method tables
+# =====================
 
 module OverlayModule
 
@@ -157,7 +138,7 @@ end
 # parametric function def
 @overlay mt tan(x::T) where {T} = 3
 
-end
+end # module OverlayModule
 
 methods = Base._methods_by_ftype(Tuple{typeof(sin), Float64}, nothing, 1, Base.get_world_counter())
 @test only(methods).method.module === Base.Math
@@ -211,7 +192,11 @@ try
      @test length(Bar.mt) == 1
 finally
     rm(load_path, recursive=true, force=true)
-    rm(depot_path, recursive=true, force=true)
+    try
+        rm(depot_path, force=true, recursive=true)
+    catch err
+        @show err
+    end
     filter!((≠)(load_path), LOAD_PATH)
     filter!((≠)(depot_path), DEPOT_PATH)
 end

@@ -1001,7 +1001,7 @@ function read(s::IO, nb::Integer = typemax(Int))
     return resize!(b, nr)
 end
 
-read(s::IO, ::Type{String}) = String(read(s))
+read(s::IO, ::Type{String}) = String(read(s)::Vector{UInt8})
 read(s::IO, T::Type) = error("The IO stream does not support reading objects of type $T.")
 
 ## high-level iterator interfaces ##
@@ -1304,6 +1304,7 @@ end
 
 """
     countlines(io::IO; eol::AbstractChar = '\\n')
+    countlines(filename::AbstractString; eol::AbstractChar = '\\n')
 
 Read `io` until the end of the stream/file and count the number of lines. To specify a file
 pass the filename as the first argument. EOL markers other than `'\\n'` are supported by
@@ -1331,6 +1332,19 @@ julia> io = IOBuffer("JuliaLang is a GitHub organization.");
 
 julia> countlines(io, eol = '.')
 1
+```
+```jldoctest
+julia> write("my_file.txt", "JuliaLang is a GitHub organization.\\n")
+36
+
+julia> countlines("my_file.txt")
+1
+
+julia> countlines("my_file.txt", eol = 'n')
+4
+
+julia> rm("my_file.txt")
+
 ```
 """
 function countlines(io::IO; eol::AbstractChar='\n')

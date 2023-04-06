@@ -14,13 +14,17 @@ using .Base:
     @propagate_inbounds, @isdefined, @boundscheck, @inbounds, Generator,
     AbstractRange, AbstractUnitRange, UnitRange, LinearIndices,
     (:), |, +, -, *, !==, !, ==, !=, <=, <, >, >=, missing,
-    any, _counttuple, eachindex, ntuple, zero, prod, in, firstindex, lastindex,
+    any, _counttuple, eachindex, ntuple, zero, prod, reduce, in, firstindex, lastindex,
     tail, fieldtypes, min, max, minimum, zero, oneunit, promote, promote_shape
 using Core: @doc
 
 if Base !== Core.Compiler
 using .Base:
     cld, fld, SubArray, view, resize!, IndexCartesian
+using .Base.Checked: checked_mul
+else
+    # Checked.checked_mul is not available during bootstrapping:
+    const checked_mul = *
 end
 
 import .Base:
@@ -286,8 +290,8 @@ length(v::Pairs) = length(getfield(v, :itr))
 axes(v::Pairs) = axes(getfield(v, :itr))
 size(v::Pairs) = size(getfield(v, :itr))
 
-@propagate_inbounds function _pairs_elt(p::Pairs{K, V}, idx) where {K, V}
-    return Pair{K, V}(idx, getfield(p, :data)[idx])
+Base.@eval @propagate_inbounds function _pairs_elt(p::Pairs{K, V}, idx) where {K, V}
+    return $(Expr(:new, :(Pair{K, V}), :idx, :(getfield(p, :data)[idx])))
 end
 
 @propagate_inbounds function iterate(p::Pairs{K, V}, state...) where {K, V}
@@ -338,7 +342,11 @@ the `zip` iterator is a tuple of values of its subiterators.
     `zip` orders the calls to its subiterators in such a way that stateful iterators will
     not advance when another iterator finishes in the current iteration.
 
-See also: [`enumerate`](@ref), [`Splat`](@ref Base.Splat).
+!!! note
+
+    `zip()` with no arguments yields an infinite iterator of empty tuples.
+
+See also: [`enumerate`](@ref), [`Base.splat`](@ref).
 
 # Examples
 ```jldoctest
@@ -1051,7 +1059,7 @@ _prod_axes1(a, A) =
     throw(ArgumentError("Cannot compute indices for object of type $(typeof(a))"))
 
 ndims(p::ProductIterator) = length(axes(p))
-length(P::ProductIterator) = prod(size(P))
+length(P::ProductIterator) = reduce(checked_mul, size(P); init=1)
 
 IteratorEltype(::Type{ProductIterator{Tuple{}}}) = HasEltype()
 IteratorEltype(::Type{ProductIterator{Tuple{I}}}) where {I} = IteratorEltype(I)
@@ -1079,6 +1087,7 @@ iterate(::ProductIterator{Tuple{}}, state) = nothing
     done1 === true || return done1 # false or missing
     return _pisdone(tail(iters), tail(states)) # check tail
 end
+@inline isdone(::ProductIterator{Tuple{}}, states) = true
 @inline isdone(P::ProductIterator, states) = _pisdone(P.iterators, states)
 
 @inline _piterate() = ()
@@ -1381,24 +1390,41 @@ julia> peek(a)
 julia> sum(a) # Sum the remaining elements
 7
 ```
-""" mutable struct Stateful{T, VS}
+"""
+mutable struct Stateful{T, VS, N<:Integer}
     itr::T
     # A bit awkward right now, but adapted to the new iteration protocol
     nextvalstate::Union{VS, Nothing}
-    taken::Int
+
+    # Number of remaining elements, if itr is HasLength or HasShape.
+    # if not, store -1 - number_of_consumed_elements.
+    # This allows us to defer calculating length until asked for.
+    # See PR #45924
+    remaining::N
     @inline function Stateful{<:Any, Any}(itr::T) where {T}
-        new{T, Any}(itr, iterate(itr), 0)
+        itl = iterlength(itr)
+        new{T, Any, typeof(itl)}(itr, iterate(itr), itl)
     end
     @inline function Stateful(itr::T) where {T}
         VS = approx_iter_type(T)
-        return new{T, VS}(itr, iterate(itr)::VS, 0)
+        itl = iterlength(itr)
+        return new{T, VS, typeof(itl)}(itr, iterate(itr)::VS, itl)
+    end
+end
+
+function iterlength(it)::Signed
+    if IteratorSize(it) isa Union{HasShape, HasLength}
+       return length(it)
+    else
+        -1
     end
 end
 
 function reset!(s::Stateful{T,VS}, itr::T=s.itr) where {T,VS}
     s.itr = itr
+    itl = iterlength(itr)
     setfield!(s, :nextvalstate, iterate(itr))
-    s.taken = 0
+    s.remaining = itl
     s
 end
 
@@ -1432,7 +1458,8 @@ convert(::Type{Stateful}, itr) = Stateful(itr)
     else
         val, state = vs
         Core.setfield!(s, :nextvalstate, iterate(s.itr, state))
-        s.taken += 1
+        rem = s.remaining
+        s.remaining = rem - typeof(rem)(1)
         return val
     end
 end
@@ -1442,11 +1469,21 @@ end
     return ns !== nothing ? ns[1] : sentinel
 end
 @inline iterate(s::Stateful, state=nothing) = s.nextvalstate === nothing ? nothing : (popfirst!(s), nothing)
-IteratorSize(::Type{Stateful{T,VS}}) where {T,VS} = IteratorSize(T) isa HasShape ? HasLength() : IteratorSize(T)
-eltype(::Type{Stateful{T, VS}} where VS) where {T} = eltype(T)
-IteratorEltype(::Type{Stateful{T,VS}}) where {T,VS} = IteratorEltype(T)
-length(s::Stateful) = length(s.itr) - s.taken
+IteratorSize(::Type{<:Stateful{T}}) where {T} = IteratorSize(T) isa HasShape ? HasLength() : IteratorSize(T)
+eltype(::Type{<:Stateful{T}}) where {T} = eltype(T)
+IteratorEltype(::Type{<:Stateful{T}}) where {T} = IteratorEltype(T)
+
+function length(s::Stateful)
+    rem = s.remaining
+    # If rem is actually remaining length, return it.
+    # else, rem is number of consumed elements.
+    if rem >= 0
+        rem
+    else
+        length(s.itr) - (typeof(rem)(1) - rem)
+    end
 end
+end # if statement several hundred lines above
 
 """
     only(x)

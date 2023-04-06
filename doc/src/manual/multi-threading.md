@@ -104,18 +104,25 @@ the `:interactive` threadpool:
 ```julia-repl
 julia> using Base.Threads
 
-julia> nthreads()
-4
-
 julia> nthreadpools()
 2
 
 julia> threadpool()
 :default
 
+julia> nthreads(:default)
+3
+
 julia> nthreads(:interactive)
 1
+
+julia> nthreads()
+3
 ```
+
+!!! note
+    The zero-argument version of `nthreads` returns the number of threads
+    in the default pool.
 
 Either or both numbers can be replaced with the word `auto`, which causes
 Julia to choose a reasonable default.
@@ -267,7 +274,7 @@ avoid the race:
 ```julia-repl
 julia> using Base.Threads
 
-julia> nthreads()
+julia> Threads.nthreads()
 4
 
 julia> acc = Ref(0)
