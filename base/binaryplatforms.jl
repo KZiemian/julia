@@ -1067,14 +1067,29 @@ function select_platform(download_info::Dict, platform::AbstractPlatform = HostP
         return nothing
     end
 
-    # At this point, we may have multiple possibilities.  E.g. if, in the future,
-    # Julia can be built without a direct dependency on libgfortran, we may match
-    # multiple tarballs that vary only within their libgfortran ABI.  To narrow it
-    # down, we just sort by triplet, then pick the last one.  This has the effect
-    # of generally choosing the latest release (e.g. a `libgfortran5` tarball
-    # rather than a `libgfortran3` tarball)
-    p = last(sort(ps, by = p -> triplet(p)))
-    return download_info[p]
+    # At this point, we may have multiple possibilities.  We now engage a multi-
+    # stage selection algorithm, where we first sort the matches by how complete
+    # the match is, e.g. preferring matches where the intersection of tags is
+    # equal to the union of the tags:
+    function match_loss(a, b)
+        a_tags = Set(keys(tags(a)))
+        b_tags = Set(keys(tags(b)))
+        return length(union(a_tags, b_tags)) - length(intersect(a_tags, b_tags))
+    end
+
+    # We prefer these better matches, and secondarily reverse-sort by triplet so
+    # as to generally choose the latest release (e.g. a `libgfortran5` tarball
+    # over a `libgfortran3` tarball).
+    ps = sort(ps, lt = (a, b) -> begin
+        loss_a = match_loss(a, platform)
+        loss_b = match_loss(b, platform)
+        if loss_a != loss_b
+            return loss_a < loss_b
+        end
+        return triplet(a) > triplet(b)
+    end)
+
+    return download_info[first(ps)]
 end
 
 # precompiles to reduce latency (see https://github.com/JuliaLang/julia/pull/43990#issuecomment-1025692379)
