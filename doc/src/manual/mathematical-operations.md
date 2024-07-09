@@ -524,19 +524,19 @@ See [Conversion and Promotion](@ref conversion-and-promotion) for how to define 
 
 ### Division functions
 
-| Function                   | Description                                                                                               |
-|:-------------------------- |:--------------------------------------------------------------------------------------------------------- |
-| [`div(x, y)`](@ref), `x÷y` | truncated division; quotient rounded towards zero                                                         |
-| [`fld(x, y)`](@ref)        | floored division; quotient rounded towards `-Inf`                                                         |
-| [`cld(x, y)`](@ref)        | ceiling division; quotient rounded towards `+Inf`                                                         |
-| [`rem(x, y)`](@ref), `x%y` | remainder; satisfies `x == div(x, y)*y + rem(x, y)`; sign matches `x`                                     |
-| [`mod(x, y)`](@ref)        | modulus; satisfies `x == fld(x, y)*y + mod(x, y)`; sign matches `y`                                       |
-| [`mod1(x, y)`](@ref)       | `mod` with offset 1; returns `r∈(0, y]` for `y>0` or `r∈[y, 0)` for `y<0`, where `mod(r, y) == mod(x, y)` |
-| [`mod2pi(x)`](@ref)        | modulus with respect to 2pi;  `0 <= mod2pi(x) < 2pi`                                                      |
-| [`divrem(x, y)`](@ref)     | returns `(div(x, y),rem(x, y))`                                                                           |
-| [`fldmod(x, y)`](@ref)     | returns `(fld(x, y), mod(x, y))`                                                                          |
-| [`gcd(x, y...)`](@ref)     | greatest positive common divisor of `x`, `y`,...                                                          |
-| [`lcm(x, y...)`](@ref)     | least positive common multiple of `x`, `y`,...                                                            |
+| Function                  | Description                                                                                               |
+|:------------------------- |:--------------------------------------------------------------------------------------------------------- |
+| [`div(x,y)`](@ref), `x÷y` | truncated division; quotient rounded towards zero                                                         |
+| [`fld(x,y)`](@ref)        | floored division; quotient rounded towards `-Inf`                                                         |
+| [`cld(x,y)`](@ref)        | ceiling division; quotient rounded towards `+Inf`                                                         |
+| [`rem(x,y)`](@ref), `x%y` | remainder; satisfies `x == div(x,y)*y + rem(x,y)`; sign matches `x`                                       |
+| [`mod(x,y)`](@ref)        | modulus; satisfies `x == fld(x,y)*y + mod(x,y)`; sign matches `y`                                         |
+| [`mod1(x,y)`](@ref)       | `mod` with offset 1; returns `r∈(0,y]` for `y>0` or `r∈[y,0)` for `y<0`, where `mod(r, y) == mod(x, y)`   |
+| [`mod2pi(x)`](@ref)       | modulus with respect to 2pi;  `0 <= mod2pi(x) < 2pi` |
+| [`divrem(x,y)`](@ref)     | returns `(div(x,y),rem(x,y))`                                                                             |
+| [`fldmod(x,y)`](@ref)     | returns `(fld(x,y),mod(x,y))`                                                                             |
+| [`gcd(x,y...)`](@ref)     | greatest positive common divisor of `x`, `y`,...                                                          |
+| [`lcm(x,y...)`](@ref)     | least positive common multiple of `x`, `y`,...                                                            |
 
 ### Sign and absolute value functions
 
